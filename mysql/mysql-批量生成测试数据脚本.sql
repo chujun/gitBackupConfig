@@ -1,3 +1,10 @@
+-- 0.创建数据库
+DROP DATABASE IF EXISTS `test_first`;
+
+create DATABASE  test_first;
+
+USE test_first;
+
 -- 1.创建一个临时内存表, 做数据插入的时候会比较快些
 -- 创建一个临时内存表
 DROP TABLE IF EXISTS `vote_record_memory`;
