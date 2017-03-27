@@ -1,0 +1,45 @@
+{
+  "job": {
+    "content": [
+      {
+        "reader": {
+          "name": "mysqlreader",
+          "parameter": {
+            "column": ["*"],
+            "connection": [
+              {
+                "jdbcUrl": ["jdbc:mysql://localhost:3306/test_first"],
+                "querySql":["select * from vote_record_memory where status=1"]
+              }
+            ],
+            "password": "root",
+            "username": "root",
+            "where": "status = 2"
+          }
+        },
+        "writer": {
+          "name": "mysqlwriter",
+          "parameter": {
+            "column": ["*"],
+            "connection": [
+              {
+                "jdbcUrl": "jdbc:mysql://localhost:3306/test_first_backup",
+                "table": ["vote_record_memory"]
+              }
+            ],
+            "password": "root",
+            "preSql": [],
+            "session": [],
+            "username": "root",
+            "writeMode": "insert"
+          }
+        }
+      }
+    ],
+    "setting": {
+      "speed": {
+        "channel": "3"
+      }
+    }
+  }
+}

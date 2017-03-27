@@ -1,0 +1,45 @@
+{
+  "job": {
+    "content": [
+      {
+        "reader": {
+          "name": "db2reader",
+          "parameter": {
+            "column": ["*"],
+            "connection": [
+              {
+                "jdbcUrl": ["jdbc:db2://192.168.8.107:60000/webdb"],
+                "table": ["T_CUS_RECORD_INFO"]
+              }
+            ],
+            "password": "web_dba",
+            "username": "web_dba",
+            "where":"ROW_ID=1"
+          }
+        },
+        "writer": {
+          "name": "mysqlwriter",
+          "parameter": {
+            "column": ["*"],
+            "connection": [
+              {
+                "jdbcUrl": "jdbc:mysql://localhost:3306/test_two?useUnicode=true&characterEncoding=UTF-8",
+                "table": ["T_CUS_RECORD_INFO"]
+              }
+            ],
+            "password": "root",
+            "preSql": [],
+            "session": [],
+            "username": "root",
+            "writeMode": "insert"
+          }
+        }
+      }
+    ],
+    "setting": {
+      "speed": {
+        "channel": "3"
+      }
+    }
+  }
+}
