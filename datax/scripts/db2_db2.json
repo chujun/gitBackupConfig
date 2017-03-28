@@ -1,0 +1,44 @@
+{
+  "job": {
+    "content": [
+      {
+        "reader": {
+          "name": "db2reader",
+          "parameter": {
+            "column": ["*"],
+            "connection": [
+              {
+                "jdbcUrl": ["jdbc:db2://192.168.8.107:60000/webdb"],
+                "querySql":["select * from T_CUS_RECORD_INFO where CUSTOM_TYPE='05'"]
+              }
+            ],
+            "password": "web_dba",
+            "username": "web_dba",
+            "where":"ROW_ID=1"
+          }
+        },
+        "writer": {
+          "name": "db2writer",
+          "parameter": {
+            "column": ["*"],
+            "connection": [
+              {
+                "jdbcUrl": "jdbc:db2://192.168.8.107:60000/webdb:currentSchema=KBDB_WEB;",
+                "table": ["T_CUS_RECORD_INFO_BACKUP"]
+              }
+            ],
+            "password": "web_dba",
+            "preSql": [],
+            "session": [],
+            "username": "web_dba"
+          }
+        }
+      }
+    ],
+    "setting": {
+      "speed": {
+        "channel": "3"
+      }
+    }
+  }
+}

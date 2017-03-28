@@ -1,0 +1,44 @@
+{
+  "job": {
+    "content": [
+      {
+        "reader": {
+          "name": "mysqlreader",
+          "parameter": {
+            "column": ["*"],
+            "connection": [
+              {
+                "jdbcUrl": ["jdbc:mysql://localhost:3306/test_two"],
+                "table": ["T_CUS_RECORD_INFO"]
+              }
+            ],
+            "password": "root",
+            "username": "root",
+            "where": ""
+          }
+        },
+        "writer": {
+          "name": "db2writer",
+          "parameter": {
+            "column": ["*"],
+            "connection": [
+              {
+                "jdbcUrl": "jdbc:db2://192.168.8.107:60000/webdb:currentSchema=KBDB_WEB;",
+                "table": ["T_CUS_RECORD_INFO_BACKUP"]
+              }
+            ],
+            "password": "web_dba",
+            "preSql": [],
+            "session": [],
+            "username": "web_dba"
+          }
+        }
+      }
+    ],
+    "setting": {
+      "speed": {
+        "channel": "3"
+      }
+    }
+  }
+}
