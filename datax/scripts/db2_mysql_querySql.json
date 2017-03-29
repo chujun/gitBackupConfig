@@ -9,7 +9,7 @@
             "connection": [
               {
                 "jdbcUrl": ["jdbc:db2://192.168.8.107:60000/webdb"],
-                "querySql":["select * from T_CUS_RECORD_INFO where CUSTOM_TYPE='05'"]
+                "querySql":["select * from T_CUS_RECORD_INFO where CUSTOM_TYPE='04'"]
               }
             ],
             "password": "web_dba",
