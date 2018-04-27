@@ -2,20 +2,15 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.fuiou.gpay</groupId>
-    <artifactId>arch-parent</artifactId>
-    <version>1.0.0.4-SNAPSHOT</version>
-    <!--<version>1.0.0.3</version>-->
-    <modules>
-        <module>core</module>
-        <module>db</module>
-        <module>dubbo</module>
-        <module>data-validate</module>
-        <module>basic</module>
-    </modules>
-    <packaging>pom</packaging>
+    <parent>
+        <groupId>com.chujun.study</groupId>
+        <artifactId>test</artifactId>
+        <version>1.0.0.0-SNAPSHOT</version>
+    </parent>
 
-    <name>arch</name>
+    <artifactId>test-study</artifactId>
+
+    <name>test-study</name>
     <url>http://maven.apache.org</url>
 
     <properties>
