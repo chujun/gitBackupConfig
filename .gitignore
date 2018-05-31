@@ -2,8 +2,7 @@
 #1.1
 *.class
 
-#1.2Package Files #$
-*.jar
+#1.2Package Files
 *.war
 *.ear
 
