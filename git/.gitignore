@@ -9,9 +9,12 @@
 
 #1.3 project
 *.iml
+*.ipr
+*.iws
 .classpath
 .project
 .metadata
+
 
 #2.directory
 #2.1 compiler directory
