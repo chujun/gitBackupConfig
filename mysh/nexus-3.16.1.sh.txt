@@ -1,0 +1,3 @@
+cd /Users/chujun/my/mycmd/nexus-3.16.1-02-mac/nexus-3.16.1-02/bin
+echo 'nexus start,please visit http://127.0.0.1:8081/nexus,user:admin,password:admin123'
+./nexus start
