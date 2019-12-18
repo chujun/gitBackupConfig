@@ -312,6 +312,7 @@ POST /openapi/commodities/page-search
 |参数名 | 参数类型 | 参数含义|是否必填 | 说明 |
 | --- | --- | --- | --- |---|
 | skuIds | Set<Integer> | sku id列表 | 否 | |
+| onlineStatus | Byte | 上架状态，0:下架，1:上架| 否 | |
 | pageIndex | Integer | 页数 | 是 |从0开始 |
 | pageSize | Integer | 每页查询数量 | 是 |默认每页20条 |
 
