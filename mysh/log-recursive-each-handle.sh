@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# demo:
+# ./log-recursive-each-handle.sh ~/Downloads/log2.txt '^.*key=(' '{.*$'
 # $1: filename
 # $2: sed pre filter str
 # $3: sed post filter str
