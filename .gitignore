@@ -23,7 +23,8 @@ out/
 .settings/
 .svn/
 
-
+#2.3 nodejs
+node_modules/
 
 
 
