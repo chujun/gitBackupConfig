@@ -31,7 +31,7 @@ node_modules/
 #3.system
 #3.1mac system
 .DS_Store
-~
+
 
 #4.other
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
