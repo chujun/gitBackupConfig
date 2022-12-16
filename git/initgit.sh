@@ -1,5 +1,6 @@
 # alais cp .gitignore file
-cpgitignore
+#cpgitignore
+cp /Users/chujun/my/project/gitBackupConfig/.gitignore ./
 git init .
 git status
 git add .
