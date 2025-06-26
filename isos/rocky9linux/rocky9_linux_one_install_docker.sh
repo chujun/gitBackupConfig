@@ -36,7 +36,7 @@ mkdir -p /etc/docker
 cat > /etc/docker/daemon.json << 'EOF'
 {
   "registry-mirrors": [
-      "https://mirror.aliyuncs.com"，
+      "https://mirror.aliyuncs.com",
       "https://hub-mirror.c.163.com"
   ]
 }
