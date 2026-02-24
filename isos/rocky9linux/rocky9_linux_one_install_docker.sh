@@ -19,6 +19,7 @@ yum -y update
 #Rocky Linux 8/9 已改用 chrony 作为默认时间同步服务，官方仓库不再提供 ntp 包，建议chrony替换
 yum install telnet vim wget java-1.8.0-openjdk httpd-tools git nc tree tcpdump -y
 
+
 # 启动并设置开机自启
 sudo systemctl enable --now chronyd
 
@@ -40,7 +41,8 @@ cat > /etc/docker/daemon.json << 'EOF'
   "registry-mirrors": [
        "https://hub.rat.dev",
       "https://docker.wanpeng.top"
-  ]
+  ],
+  "exec-opts": ["native.cgroupdriver=systemd"]
 }
 EOF
 
@@ -64,6 +66,17 @@ docker -v
 systemctl start docker
 systemctl status docker
 
+# 验证CRI containerd 客户端和服务端版本
+containerd -v
+ctr version
+
+#containerd自启动
+systemctl enable containerd
+#Created symlink /etc/systemd/system/multi-user.target.wants/containerd.service → /usr/lib/systemd/system/containerd.service.
+systemctl start containerd
+systemctl status containerd
+
+
 #安装docker-compose
 ###这儿可能会有网络访问慢问题，github.com地址
 #curl -SL https://github.com/docker/compose/releases/download/v2.29.1/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
@@ -74,3 +87,11 @@ systemctl status docker
 dnf install docker-compose-plugin
 #验证版本，注意中间有空格
 docker compose version
+
+#专为 Kubernetes 而生,调试工具，19M左右,github下载速度比较慢，大概需要几分钟分钟左右
+VERSION="v1.35.0"
+wget https://github.com/kubernetes-sigs/cri-tools/releases/download/$VERSION/crictl-$VERSION-linux-amd64.tar.gz
+sudo tar zxvf crictl-$VERSION-linux-amd64.tar.gz -C /usr/local/bin
+rm -f crictl-$VERSION-linux-amd64.tar.gz
+# 验证安装
+crictl --version
