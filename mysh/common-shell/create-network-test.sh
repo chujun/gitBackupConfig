@@ -555,19 +555,84 @@ test_network_performance() {
 test_port_connectivity() {
     log_info "开始端口连通性测试..."
     
+    # 检查PORT_TARGETS是否为空
+    if [ ${#PORT_TARGETS[@]} -eq 0 ]; then
+        log_warn "PORT_TARGETS数组为空，跳过端口测试"
+        return
+    fi
+    
+    # 使用计数器跟踪有效测试
+    local valid_tests=0
+    local total_tests=0
+    
     for host in "${!PORT_TARGETS[@]}"; do
-        for port in ${PORT_TARGETS[$host]}; do
+        # 跳过空主机名
+        if [ -z "$host" ] || [ "$host" = "" ]; then
+            log_warn "跳过空主机名的端口测试"
+            continue
+        fi
+        
+        # 获取端口列表
+        local ports_str="${PORT_TARGETS[$host]}"
+        
+        # 检查端口列表是否为空
+        if [ -z "$ports_str" ]; then
+            log_warn "主机 '$host' 的端口列表为空，跳过"
+            continue
+        fi
+        
+        # 分割端口列表
+        local ports
+        IFS=' ' read -ra ports <<< "$ports_str"
+        
+        for port in "${ports[@]}"; do
+            # 跳过空端口
+            if [ -z "$port" ] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
+                log_warn "主机 '$host' 的端口 '$port' 无效，跳过"
+                continue
+            fi
+            
+            total_tests=$((total_tests + 1))
             log_info "测试端口: $host:$port"
             
-            if timeout 3 bash -c "echo > /dev/tcp/${host}/${port}" 2>/dev/null; then
-                log_result "端口测试" "PASS" "$host:$port 可连接"
+            # 方法1: 使用bash内置TCP测试
+            local result="FAIL"
+            local message=""
+            
+            # 设置超时并测试TCP连接
+            if timeout 3 bash -c "echo > /dev/tcp/$host/$port" 2>/dev/null; then
+                result="PASS"
+                message="$host:$port 可连接(TCP)"
+                valid_tests=$((valid_tests + 1))
             else
-                log_result "端口测试" "FAIL" "$host:$port 不可连接"
+                # 方法2: 尝试使用nc (netcat)
+                if command -v nc &> /dev/null; then
+                    if nc -z -w 3 "$host" "$port" 2>/dev/null; then
+                        result="PASS"
+                        message="$host:$port 可连接(nc)"
+                        valid_tests=$((valid_tests + 1))
+                    else
+                        result="FAIL"
+                        message="$host:$port 不可连接"
+                    fi
+                else
+                    result="FAIL"
+                    message="$host:$port 不可连接(无nc)"
+                fi
             fi
+            
+            log_result "端口测试" "$result" "$message"
         done
     done
     
+    # 输出测试统计
     echo ""
+    log_info "端口测试完成: $valid_tests/$total_tests 个测试通过"
+    
+    if [ $total_tests -eq 0 ]; then
+        log_warn "未执行任何有效的端口测试"
+        log_info "请检查PORT_TARGETS配置"
+    fi
 }
 
 # 生成测试报告
