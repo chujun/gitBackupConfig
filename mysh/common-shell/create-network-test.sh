@@ -1,11 +1,12 @@
 
 cat >> network-test.sh << 'testEOF'
-
+###########################脚本开始#########################
 #!/bin/bash
-# 网络连通性综合测试脚本
+# 网络连通性测试脚本（参数化优化版）
 # 功能：测试 ping 连通性、HTTP/HTTPS 访问、DNS 解析、路由跟踪等
+# 支持：命令行参数、配置文件、环境变量三种配置方式
 # 作者：元宝
-# 版本：2.0
+# 版本：3.0
 # 日期：2026-03-06
 
 set -e
@@ -19,22 +20,20 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# 配置参数
-PING_COUNT=4
-PING_TIMEOUT=2
-CURL_TIMEOUT=10
-TEST_IP="10.1.32.61"
+# ============================
+# 默认配置参数
+# 优先级：命令行参数 > 配置文件 > 环境变量 > 默认值
+# ============================
+
+# 日志文件
 LOG_FILE="/tmp/network_test_$(date +%Y%m%d_%H%M%S).log"
 
-# 测试目标列表
-declare -a PING_TARGETS=(
-    "10.1.32.61"
-    "8.8.8.8"
-    "1.1.1.1"
-    "114.114.114.114"
-)
+# 默认Ping目标（可从环境变量覆盖）
+DEFAULT_PING_TARGETS=("10.1.32.61" "8.8.8.8" "1.1.1.1" "114.114.114.114")
+PING_TARGETS=("${DEFAULT_PING_TARGETS[@]}")
 
-declare -a HTTP_TARGETS=(
+# 默认HTTP目标
+DEFAULT_HTTP_TARGETS=(
     "http://www.baidu.com"
     "http://www.google.com"
     "https://www.google.com"
@@ -43,6 +42,42 @@ declare -a HTTP_TARGETS=(
     "https://www.taobao.com"
     "https://mirrors.aliyun.com"
 )
+HTTP_TARGETS=("${DEFAULT_HTTP_TARGETS[@]}")
+
+# 默认详细HTTPS目标
+DEFAULT_HTTPS_DETAILED_TARGETS=("https://www.google.com" "https://github.com")
+HTTPS_DETAILED_TARGETS=("${DEFAULT_HTTPS_DETAILED_TARGETS[@]}")
+
+# 默认DNS测试域名
+DEFAULT_DNS_TARGETS=("www.baidu.com" "www.google.com" "github.com" "www.qq.com")
+DNS_TARGETS=("${DEFAULT_DNS_TARGETS[@]}")
+
+# 默认端口测试目标
+declare -A DEFAULT_PORT_TARGETS=(
+    ["www.baidu.com"]="80 443"
+    ["github.com"]="443 22"
+    ["8.8.8.8"]="53"
+)
+declare -A PORT_TARGETS
+for key in "${!DEFAULT_PORT_TARGETS[@]}"; do
+    PORT_TARGETS[$key]="${DEFAULT_PORT_TARGETS[$key]}"
+done
+
+# 测试参数
+PING_COUNT=4
+PING_TIMEOUT=2
+CURL_TIMEOUT=10
+TRACEROUTE_HOPS=15
+TRACEROUTE_TIMEOUT=1
+PERF_TEST_COUNT=10
+PERF_TEST_INTERVAL=0.2
+
+# 配置文件路径
+CONFIG_FILE="$(dirname "$0")/network_test.conf"
+
+# ============================
+# 函数定义
+# ============================
 
 # 日志函数
 log_info() {
@@ -79,17 +114,224 @@ log_result() {
     fi
 }
 
+# 加载配置文件
+load_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        log_info "加载配置文件: $CONFIG_FILE"
+        source "$CONFIG_FILE"
+    else
+        log_debug "配置文件不存在: $CONFIG_FILE，使用默认配置"
+    fi
+}
+
+# 加载环境变量
+load_env_vars() {
+    # 从环境变量加载Ping目标
+    if [ -n "$NETWORK_TEST_PING_TARGETS" ]; then
+        IFS=',' read -ra PING_TARGETS <<< "$NETWORK_TEST_PING_TARGETS"
+        log_debug "从环境变量加载Ping目标: ${PING_TARGETS[*]}"
+    fi
+    
+    # 从环境变量加载HTTP目标
+    if [ -n "$NETWORK_TEST_HTTP_TARGETS" ]; then
+        IFS=',' read -ra HTTP_TARGETS <<< "$NETWORK_TEST_HTTP_TARGETS"
+        log_debug "从环境变量加载HTTP目标: ${HTTP_TARGETS[*]}"
+    fi
+    
+    # 从环境变量加载主测试IP
+    if [ -n "$NETWORK_TEST_PRIMARY_IP" ]; then
+        # 确保主IP在Ping目标列表中
+        if [[ ! " ${PING_TARGETS[@]} " =~ " ${NETWORK_TEST_PRIMARY_IP} " ]]; then
+            PING_TARGETS+=("$NETWORK_TEST_PRIMARY_IP")
+        fi
+        log_debug "从环境变量加载主测试IP: $NETWORK_TEST_PRIMARY_IP"
+    fi
+}
+
+# 解析命令行参数
+parse_args() {
+    local help_text="用法: $0 [选项] [测试类型]
+    
+选项:
+  -h, --help                   显示此帮助信息
+  -c, --config FILE           指定配置文件路径
+  -l, --log FILE             指定日志文件路径
+  -p, --ping IP1,IP2,...     指定Ping测试目标(逗号分隔)
+  -w, --http URL1,URL2,...   指定HTTP测试目标(逗号分隔)
+  -i, --ip IP                 指定主测试IP地址
+  --ping-count NUM           Ping包数量(默认: $PING_COUNT)
+  --ping-timeout SEC         Ping超时时间(默认: $PING_TIMEOUT)
+  --curl-timeout SEC         Curl超时时间(默认: $CURL_TIMEOUT)
+  --detailed-targets URL1,URL2 详细HTTPS测试目标
+  
+测试类型:
+  full        完整测试(所有项目)
+  ping        仅Ping测试
+  http        仅HTTP/HTTPS测试
+  https       详细HTTPS测试
+  dns         DNS解析测试
+  route       路由跟踪测试
+  perf        网络性能测试
+  port        端口连通性测试
+  info        系统信息收集
+  report      生成测试报告
+  
+示例:
+  $0 -i 10.1.32.61 ping
+  $0 -p 8.8.8.8,1.1.1.1,10.1.32.61 -w https://google.com,https://github.com full
+  $0 --config /etc/network_test.conf"
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                echo -e "$help_text"
+                exit 0
+                ;;
+            -c|--config)
+                CONFIG_FILE="$2"
+                load_config
+                shift 2
+                ;;
+            -l|--log)
+                LOG_FILE="$2"
+                shift 2
+                ;;
+            -p|--ping)
+                IFS=',' read -ra PING_TARGETS <<< "$2"
+                log_info "命令行参数: 设置Ping目标为 ${PING_TARGETS[*]}"
+                shift 2
+                ;;
+            -w|--http)
+                IFS=',' read -ra HTTP_TARGETS <<< "$2"
+                log_info "命令行参数: 设置HTTP目标为 ${HTTP_TARGETS[*]}"
+                shift 2
+                ;;
+            -i|--ip)
+                local primary_ip="$2"
+                # 确保主IP在Ping目标列表中
+                if [[ ! " ${PING_TARGETS[@]} " =~ " ${primary_ip} " ]]; then
+                    PING_TARGETS+=("$primary_ip")
+                fi
+                log_info "命令行参数: 设置主测试IP为 $primary_ip"
+                shift 2
+                ;;
+            --ping-count)
+                PING_COUNT="$2"
+                log_info "命令行参数: 设置Ping包数量为 $PING_COUNT"
+                shift 2
+                ;;
+            --ping-timeout)
+                PING_TIMEOUT="$2"
+                log_info "命令行参数: 设置Ping超时为 $PING_TIMEOUT 秒"
+                shift 2
+                ;;
+            --curl-timeout)
+                CURL_TIMEOUT="$2"
+                log_info "命令行参数: 设置Curl超时为 $CURL_TIMEOUT 秒"
+                shift 2
+                ;;
+            --detailed-targets)
+                IFS=',' read -ra HTTPS_DETAILED_TARGETS <<< "$2"
+                log_info "命令行参数: 设置详细HTTPS目标为 ${HTTPS_DETAILED_TARGETS[*]}"
+                shift 2
+                ;;
+            -*)
+                log_error "未知选项: $1"
+                echo -e "$help_text"
+                exit 1
+                ;;
+            *)
+                # 剩下的参数是测试类型
+                TEST_TYPE="$1"
+                shift
+                ;;
+        esac
+    done
+    
+    # 如果没有指定测试类型，则使用交互模式
+    if [ -z "$TEST_TYPE" ]; then
+        TEST_TYPE="interactive"
+    fi
+}
+
+# 显示当前配置
+show_config() {
+    echo -e "${BLUE}当前测试配置:${NC}"
+    echo "=============================="
+    echo "Ping目标: ${PING_TARGETS[*]}"
+    echo "HTTP目标: ${HTTP_TARGETS[*]}"
+    echo "详细HTTPS目标: ${HTTPS_DETAILED_TARGETS[*]}"
+    echo "DNS测试域名: ${DNS_TARGETS[*]}"
+    echo "端口测试目标: ${#PORT_TARGETS[@]} 个"
+    echo "Ping参数: 包数=$PING_COUNT, 超时=${PING_TIMEOUT}s"
+    echo "Curl超时: ${CURL_TIMEOUT}s"
+    echo "日志文件: $LOG_FILE"
+    echo "配置文件: $CONFIG_FILE"
+    echo "=============================="
+    echo ""
+}
+
+# 创建示例配置文件
+create_sample_config() {
+    local config_sample=$(cat << 'EOF'
+# 网络测试脚本配置文件
+# 注释以#开头，每行一个配置
+
+# Ping测试目标(多个目标用空格分隔)
+PING_TARGETS=("10.1.32.61" "8.8.8.8" "1.1.1.1" "114.114.114.114")
+
+# HTTP/HTTPS测试目标
+HTTP_TARGETS=(
+    "http://www.baidu.com"
+    "http://www.google.com"
+    "https://www.google.com"
+    "https://github.com"
+    "https://www.qq.com"
+    "https://mirrors.aliyun.com"
+)
+
+# 详细HTTPS测试目标
+HTTPS_DETAILED_TARGETS=("https://www.google.com" "https://github.com")
+
+# DNS测试域名
+DNS_TARGETS=("www.baidu.com" "www.google.com" "github.com" "www.qq.com")
+
+# 端口测试目标(主机:端口列表)
+# 注意: 数组格式，键是主机，值是端口列表
+declare -A PORT_TARGETS=(
+    ["www.baidu.com"]="80 443"
+    ["github.com"]="443 22"
+    ["8.8.8.8"]="53"
+)
+
+# 测试参数
+PING_COUNT=4
+PING_TIMEOUT=2
+CURL_TIMEOUT=10
+TRACEROUTE_HOPS=15
+TRACEROUTE_TIMEOUT=1
+PERF_TEST_COUNT=10
+PERF_TEST_INTERVAL=0.2
+EOF
+    )
+    
+    echo "$config_sample" > "$CONFIG_FILE.example"
+    log_info "示例配置文件已创建: $CONFIG_FILE.example"
+    echo "请根据需要修改，然后重命名为: network_test.conf"
+}
+
 # 打印横幅
 print_banner() {
     clear
     echo -e "${BLUE}"
     echo "==============================================="
-    echo "    网络连通性综合测试脚本 v2.0"
+    echo "    网络连通性测试脚本 v3.0 (参数化版)"
     echo "==============================================="
     echo -e "${NC}"
     echo "开始时间: $(date)"
     echo "日志文件: $LOG_FILE"
     echo ""
+    show_config
 }
 
 # 检查命令是否存在
@@ -114,13 +356,6 @@ check_commands() {
         else
             log_error "无法自动安装依赖，请手动安装"
         fi
-    fi
-    
-    # 检查curl是否支持SSL
-    if curl --version | grep -i "ssl" > /dev/null; then
-        log_info "Curl支持SSL/TLS"
-    else
-        log_warn "Curl可能不支持SSL/TLS，HTTPS测试可能失败"
     fi
 }
 
@@ -150,20 +385,13 @@ get_system_info() {
         route -n >> "$LOG_FILE"
     fi
     echo "" >> "$LOG_FILE"
-    
-    echo "=== DNS配置 ===" >> "$LOG_FILE"
-    if [ -f /etc/resolv.conf ]; then
-        cat /etc/resolv.conf >> "$LOG_FILE"
-    fi
-    echo "" >> "$LOG_FILE"
 }
 
 # DNS解析测试
 test_dns() {
     log_info "开始DNS解析测试..."
-    local domains=("www.baidu.com" "www.google.com" "github.com" "www.qq.com")
     
-    for domain in "${domains[@]}"; do
+    for domain in "${DNS_TARGETS[@]}"; do
         log_info "测试域名解析: $domain"
         
         # 使用dig测试
@@ -173,16 +401,6 @@ test_dns() {
                 log_result "DNS解析(dig)" "PASS" "$domain 解析成功"
             else
                 log_result "DNS解析(dig)" "FAIL" "$domain 解析失败"
-            fi
-        fi
-        
-        # 使用nslookup测试
-        if command -v nslookup &> /dev/null; then
-            log_debug "使用nslookup解析: $domain"
-            if nslookup "$domain" 2>/dev/null | grep -i "address" | head -2; then
-                log_result "DNS解析(nslookup)" "PASS" "$domain 解析成功"
-            else
-                log_result "DNS解析(nslookup)" "FAIL" "$domain 解析失败"
             fi
         fi
         
@@ -225,16 +443,8 @@ test_http() {
         if curl -s -f --max-time "$CURL_TIMEOUT" -I "$url" 2>&1 | head -1 | tee -a "$LOG_FILE"; then
             local status_code=$(curl -s -f --max-time "$CURL_TIMEOUT" -w "%{http_code}" -o /dev/null "$url")
             log_result "HTTP访问" "PASS" "$url 访问成功 (状态码: $status_code)"
-            
-            # 显示响应头信息
-            echo -e "${CYAN}响应头:${NC}"
-            curl -s -f --max-time "$CURL_TIMEOUT" -I "$url" 2>&1 | head -10
         else
             log_result "HTTP访问" "FAIL" "$url 访问失败"
-            
-            # 尝试获取更多错误信息
-            local error_output=$(curl -s --max-time "$CURL_TIMEOUT" -w "%{http_code} %{time_total}s" -o /dev/null "$url" 2>&1)
-            echo -e "${YELLOW}错误详情: $error_output${NC}"
         fi
         
         echo ""
@@ -245,9 +455,7 @@ test_http() {
 test_https_detailed() {
     log_info "开始详细HTTPS测试..."
     
-    local https_targets=("https://www.google.com" "https://github.com")
-    
-    for url in "${https_targets[@]}"; do
+    for url in "${HTTPS_DETAILED_TARGETS[@]}"; do
         log_info "详细测试HTTPS: $url"
         
         echo -e "${CYAN}执行: curl -vvvk --max-time $CURL_TIMEOUT $url${NC}"
@@ -256,26 +464,10 @@ test_https_detailed() {
         local temp_file=$(mktemp)
         
         # 执行详细curl测试
-        if curl -vvvk --max-time "$CURL_TIMEOUT" "$url" 2>&1 | tee "$temp_file" | grep -E "(SSL|Connected|HTTP|expire)" | head -20; then
+        if curl -vvvk --max-time "$CURL_TIMEOUT" "$url" 2>&1 | tee "$temp_file" | grep -E "(SSL|Connected|HTTP)" | head -10; then
             log_result "HTTPS详细测试" "PASS" "$url SSL握手成功"
-            
-            # 提取SSL证书信息
-            if grep -q "SSL certificate" "$temp_file"; then
-                echo -e "${CYAN}SSL证书信息:${NC}"
-                grep -A5 "SSL certificate" "$temp_file"
-            fi
-            
-            # 提取连接信息
-            if grep -q "Connected to" "$temp_file"; then
-                echo -e "${CYAN}连接信息:${NC}"
-                grep -A2 "Connected to" "$temp_file"
-            fi
         else
             log_result "HTTPS详细测试" "FAIL" "$url SSL握手失败"
-            
-            # 显示错误详情
-            echo -e "${YELLOW}错误详情:${NC}"
-            tail -20 "$temp_file"
         fi
         
         # 清理临时文件
@@ -288,52 +480,45 @@ test_https_detailed() {
 test_traceroute() {
     log_info "开始路由跟踪测试..."
     
-    local trace_targets=("8.8.8.8" "www.baidu.com")
+    # 使用第一个Ping目标进行路由跟踪
+    local trace_target="${PING_TARGETS[0]}"
     
-    for target in "${trace_targets[@]}"; do
-        log_info "路由跟踪: $target"
-        
-        # 使用traceroute
-        if command -v traceroute &> /dev/null; then
-            echo -e "${CYAN}使用traceroute:${NC}"
-            if traceroute -n -m 15 -w 1 "$target" 2>&1 | head -20 | tee -a "$LOG_FILE"; then
-                log_result "路由跟踪(traceroute)" "PASS" "$target 路由跟踪完成"
-            else
-                log_result "路由跟踪(traceroute)" "FAIL" "$target 路由跟踪失败"
-            fi
+    if [ -z "$trace_target" ]; then
+        trace_target="8.8.8.8"
+    fi
+    
+    log_info "路由跟踪: $trace_target"
+    
+    # 使用traceroute
+    if command -v traceroute &> /dev/null; then
+        echo -e "${CYAN}使用traceroute:${NC}"
+        if traceroute -n -m "$TRACEROUTE_HOPS" -w "$TRACEROUTE_TIMEOUT" "$trace_target" 2>&1 | head -20 | tee -a "$LOG_FILE"; then
+            log_result "路由跟踪(traceroute)" "PASS" "$trace_target 路由跟踪完成"
+        else
+            log_result "路由跟踪(traceroute)" "FAIL" "$trace_target 路由跟踪失败"
         fi
-        
-        # 使用mtr（更高级）
-        if command -v mtr &> /dev/null; then
-            echo -e "${CYAN}使用mtr:${NC}"
-            if mtr -n -c 10 -r "$target" 2>&1 | tee -a "$LOG_FILE"; then
-                log_result "路由跟踪(mtr)" "PASS" "$target 路由质量测试完成"
-            else
-                log_result "路由跟踪(mtr)" "FAIL" "$target 路由质量测试失败"
-            fi
-        fi
-        
-        echo ""
-    done
+    fi
+    
+    echo ""
 }
 
 # 网络性能测试
 test_network_performance() {
     log_info "开始网络性能测试..."
     
-    # 测试到指定IP的延迟和丢包率
-    local perf_target="10.1.32.61"
+    # 测试第一个Ping目标的性能
+    local perf_target="${PING_TARGETS[0]}"
     
-    if ping -c 10 -i 0.2 -W 1 "$perf_target" 2>&1 | tee -a "$LOG_FILE"; then
+    if [ -z "$perf_target" ]; then
+        perf_target="8.8.8.8"
+    fi
+    
+    if ping -c "$PERF_TEST_COUNT" -i "$PERF_TEST_INTERVAL" -W 1 "$perf_target" 2>&1 | tee -a "$LOG_FILE"; then
         # 提取性能数据
-        local stats=$(ping -c 10 -i 0.2 -W 1 "$perf_target" 2>/dev/null | tail -2)
+        local stats=$(ping -c "$PERF_TEST_COUNT" -i "$PERF_TEST_INTERVAL" -W 1 "$perf_target" 2>/dev/null | tail -2)
         log_result "网络性能" "PASS" "$perf_target 性能测试完成"
         echo -e "${CYAN}性能统计:${NC}"
         echo "$stats"
-        
-        # 计算平均延迟
-        local avg_ping=$(echo "$stats" | grep -o "min/avg/max/[^ ]*" | cut -d'/' -f4)
-        echo -e "${CYAN}平均延迟: ${avg_ping}ms${NC}"
     else
         log_result "网络性能" "FAIL" "$perf_target 性能测试失败"
     fi
@@ -345,30 +530,14 @@ test_network_performance() {
 test_port_connectivity() {
     log_info "开始端口连通性测试..."
     
-    # 常见端口测试
-    declare -A ports=(
-        ["www.baidu.com"]="80 443"
-        ["github.com"]="443 22"
-        ["8.8.8.8"]="53"
-    )
-    
-    for host in "${!ports[@]}"; do
-        for port in ${ports[$host]}; do
+    for host in "${!PORT_TARGETS[@]}"; do
+        for port in ${PORT_TARGETS[$host]}; do
             log_info "测试端口: $host:$port"
             
             if timeout 3 bash -c "echo > /dev/tcp/${host}/${port}" 2>/dev/null; then
                 log_result "端口测试" "PASS" "$host:$port 可连接"
             else
-                # 尝试使用nc
-                if command -v nc &> /dev/null; then
-                    if nc -z -w 3 "$host" "$port" 2>/dev/null; then
-                        log_result "端口测试" "PASS" "$host:$port 可连接(nc)"
-                    else
-                        log_result "端口测试" "FAIL" "$host:$port 不可连接"
-                    fi
-                else
-                    log_result "端口测试" "FAIL" "$host:$port 不可连接(无nc)"
-                fi
+                log_result "端口测试" "FAIL" "$host:$port 不可连接"
             fi
         done
     done
@@ -388,48 +557,15 @@ generate_report() {
         echo "========================================="
         echo "生成时间: $(date)"
         echo "主机名: $(hostname)"
-        echo "IP地址: $(hostname -I 2>/dev/null || ip addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)"
+        echo "测试配置:"
+        echo "  Ping目标: ${PING_TARGETS[*]}"
+        echo "  HTTP目标: ${#HTTP_TARGETS[@]} 个"
         echo "日志文件: $LOG_FILE"
         echo "========================================="
-        echo ""
-        
-        echo "=== 测试摘要 ==="
-        echo "1. DNS解析测试: 完成"
-        echo "2. Ping连通性测试: 完成"
-        echo "3. HTTP/HTTPS访问测试: 完成"
-        echo "4. 详细HTTPS测试: 完成"
-        echo "5. 路由跟踪测试: 完成"
-        echo "6. 网络性能测试: 完成"
-        echo "7. 端口连通性测试: 完成"
-        echo ""
-        
-        echo "=== 建议与修复 ==="
-        echo "1. 如果Ping测试失败: 检查网络连接、防火墙设置"
-        echo "2. 如果DNS解析失败: 检查/etc/resolv.conf配置"
-        echo "3. 如果HTTPS访问失败: 检查系统时间、SSL证书、代理设置"
-        echo "4. 如果特定网站无法访问: 检查DNS污染、GFW限制、代理配置"
-        echo ""
-        
-        echo "=== 常用诊断命令 ==="
-        echo "查看网络接口: ip addr show 或 ifconfig -a"
-        echo "查看路由表: ip route show 或 route -n"
-        echo "查看DNS配置: cat /etc/resolv.conf"
-        echo "测试端口连通性: nc -zv host port"
-        echo "跟踪路由: traceroute host 或 mtr host"
-        echo "查看连接状态: ss -tunap 或 netstat -tunap"
-        echo ""
-        
-        echo "=== 配置文件位置 ==="
-        echo "网络配置: /etc/network/interfaces (Debian/Ubuntu)"
-        echo "网络配置: /etc/sysconfig/network-scripts/ (RHEL/CentOS)"
-        echo "DNS配置: /etc/resolv.conf"
-        echo "主机名解析: /etc/hosts"
-        echo "代理配置: ~/.bashrc 或 /etc/environment"
         
     } > "$report_file"
     
     echo -e "${GREEN}测试报告已生成: $report_file${NC}"
-    echo ""
     cat "$report_file"
 }
 
@@ -450,8 +586,9 @@ show_menu() {
     echo "8. 端口连通性测试"
     echo "9. 系统信息收集"
     echo "10. 生成测试报告"
-    echo "11. 查看日志文件"
-    echo "12. 清理临时文件"
+    echo "11. 查看当前配置"
+    echo "12. 创建示例配置文件"
+    echo "13. 查看日志文件"
     echo "0. 退出"
     echo ""
 }
@@ -465,132 +602,172 @@ cleanup() {
     log_info "清理完成"
 }
 
-# 主函数
-main() {
-    # 检查参数
-    if [ $# -gt 0 ]; then
-        case "$1" in
-            "ping")
-                test_ping
-                ;;
-            "http")
-                test_http
-                ;;
-            "https")
-                test_https_detailed
-                ;;
-            "dns")
-                test_dns
-                ;;
-            "full")
-                print_banner
-                check_commands
-                get_system_info
-                test_dns
-                test_ping
-                test_http
-                test_https_detailed
-                test_traceroute
-                test_network_performance
-                test_port_connectivity
-                generate_report
-                ;;
-            *)
-                echo "用法: $0 [ping|http|https|dns|full]"
-                echo "不带参数运行进入交互菜单"
-                exit 1
-                ;;
-        esac
-        exit 0
-    fi
+# 主测试函数
+run_tests() {
+    local test_type="$1"
     
-    # 交互式菜单
-    while true; do
-        show_menu
-        read -p "请选择操作 [0-12]: " choice
-        
-        case $choice in
-            1)
-                print_banner
-                check_commands
-                get_system_info
-                test_dns
-                test_ping
-                test_http
-                test_https_detailed
-                test_traceroute
-                test_network_performance
-                test_port_connectivity
-                generate_report
-                ;;
-            2)
-                print_banner
-                test_dns
-                ;;
-            3)
-                print_banner
-                test_ping
-                ;;
-            4)
-                print_banner
-                test_http
-                ;;
-            5)
-                print_banner
-                test_https_detailed
-                ;;
-            6)
-                print_banner
-                test_traceroute
-                ;;
-            7)
-                print_banner
-                test_network_performance
-                ;;
-            8)
-                print_banner
-                test_port_connectivity
-                ;;
-            9)
-                print_banner
-                get_system_info
-                echo -e "${GREEN}系统信息已保存到日志文件: $LOG_FILE${NC}"
-                ;;
-            10)
-                print_banner
-                generate_report
-                ;;
-            11)
-                if [ -f "$LOG_FILE" ]; then
-                    echo -e "${CYAN}=== 日志文件内容 ===${NC}"
-                    tail -50 "$LOG_FILE"
-                else
-                    log_error "日志文件不存在: $LOG_FILE"
-                fi
-                ;;
-            12)
-                cleanup
-                ;;
-            0)
-                echo -e "${GREEN}退出脚本${NC}"
-                exit 0
-                ;;
-            *)
-                echo -e "${RED}无效选择，请重新输入${NC}"
-                ;;
-        esac
-        
-        echo ""
-        read -p "按回车键继续..."
-    done
+    case "$test_type" in
+        "full")
+            print_banner
+            check_commands
+            get_system_info
+            test_dns
+            test_ping
+            test_http
+            test_https_detailed
+            test_traceroute
+            test_network_performance
+            test_port_connectivity
+            generate_report
+            ;;
+        "ping")
+            print_banner
+            test_ping
+            ;;
+        "http")
+            print_banner
+            test_http
+            ;;
+        "https")
+            print_banner
+            test_https_detailed
+            ;;
+        "dns")
+            print_banner
+            test_dns
+            ;;
+        "route")
+            print_banner
+            test_traceroute
+            ;;
+        "perf")
+            print_banner
+            test_network_performance
+            ;;
+        "port")
+            print_banner
+            test_port_connectivity
+            ;;
+        "info")
+            print_banner
+            get_system_info
+            echo -e "${GREEN}系统信息已保存到日志文件: $LOG_FILE${NC}"
+            ;;
+        "report")
+            print_banner
+            generate_report
+            ;;
+        "interactive")
+            # 交互式菜单
+            while true; do
+                show_menu
+                read -p "请选择操作 [0-13]: " choice
+                
+                case $choice in
+                    1)
+                        print_banner
+                        check_commands
+                        get_system_info
+                        test_dns
+                        test_ping
+                        test_http
+                        test_https_detailed
+                        test_traceroute
+                        test_network_performance
+                        test_port_connectivity
+                        generate_report
+                        ;;
+                    2)
+                        print_banner
+                        test_dns
+                        ;;
+                    3)
+                        print_banner
+                        test_ping
+                        ;;
+                    4)
+                        print_banner
+                        test_http
+                        ;;
+                    5)
+                        print_banner
+                        test_https_detailed
+                        ;;
+                    6)
+                        print_banner
+                        test_traceroute
+                        ;;
+                    7)
+                        print_banner
+                        test_network_performance
+                        ;;
+                    8)
+                        print_banner
+                        test_port_connectivity
+                        ;;
+                    9)
+                        print_banner
+                        get_system_info
+                        echo -e "${GREEN}系统信息已保存到日志文件: $LOG_FILE${NC}"
+                        ;;
+                    10)
+                        print_banner
+                        generate_report
+                        ;;
+                    11)
+                        show_config
+                        ;;
+                    12)
+                        create_sample_config
+                        ;;
+                    13)
+                        if [ -f "$LOG_FILE" ]; then
+                            echo -e "${CYAN}=== 日志文件内容 ===${NC}"
+                            tail -50 "$LOG_FILE"
+                        else
+                            log_error "日志文件不存在: $LOG_FILE"
+                        fi
+                        ;;
+                    0)
+                        echo -e "${GREEN}退出脚本${NC}"
+                        exit 0
+                        ;;
+                    *)
+                        echo -e "${RED}无效选择，请重新输入${NC}"
+                        ;;
+                esac
+                
+                echo ""
+                read -p "按回车键继续..."
+            done
+            ;;
+        *)
+            log_error "未知的测试类型: $test_type"
+            echo "可用测试类型: full, ping, http, https, dns, route, perf, port, info, report"
+            exit 1
+            ;;
+    esac
 }
 
-# 捕获退出信号
-trap 'echo -e "\n${YELLOW}脚本被中断${NC}"; exit 1' INT TERM
+# 主函数
+main() {
+    # 加载配置
+    load_config
+    load_env_vars
+    
+    # 解析命令行参数
+    parse_args "$@"
+    
+    # 捕获退出信号
+    trap 'echo -e "\n${YELLOW}脚本被中断${NC}"; exit 1' INT TERM
+    
+    # 运行测试
+    run_tests "$TEST_TYPE"
+}
 
 # 运行主函数
 main "$@"
-
+###########################脚本结束#########################
 testEOF
 
 #赋权
