@@ -6,7 +6,7 @@ cat >> network-test.sh << 'testEOF'
 # 功能：测试 ping 连通性、HTTP/HTTPS 访问、DNS 解析、路由跟踪等
 # 支持：命令行参数、配置文件、环境变量三种配置方式
 # 作者：元宝
-# 版本：3.0
+# 版本：3.1
 # 日期：2026-03-06
 
 set -e
@@ -148,6 +148,67 @@ load_env_vars() {
     fi
 }
 
+# 创建示例配置文件
+create_sample_config() {
+    local config_path="$1"
+    if [ -z "$config_path" ]; then
+        config_path="network_test.conf.example"
+    fi
+    
+    local config_sample=$(cat << 'EOF'
+# 网络测试脚本配置文件
+# 注释以#开头，每行一个配置
+
+# Ping测试目标(多个目标用空格分隔)
+PING_TARGETS=("10.1.32.61" "8.8.8.8" "1.1.1.1" "114.114.114.114")
+
+# HTTP/HTTPS测试目标
+HTTP_TARGETS=(
+    "http://www.baidu.com"
+    "http://www.google.com"
+    "https://www.google.com"
+    "https://github.com"
+    "https://www.qq.com"
+    "https://mirrors.aliyun.com"
+)
+
+# 详细HTTPS测试目标
+HTTPS_DETAILED_TARGETS=("https://www.google.com" "https://github.com")
+
+# DNS测试域名
+DNS_TARGETS=("www.baidu.com" "www.google.com" "github.com" "www.qq.com")
+
+# 端口测试目标(主机:端口列表)
+# 注意: 数组格式，键是主机，值是端口列表
+declare -A PORT_TARGETS=(
+    ["www.baidu.com"]="80 443"
+    ["github.com"]="443 22"
+    ["8.8.8.8"]="53"
+)
+
+# 测试参数
+PING_COUNT=4
+PING_TIMEOUT=2
+CURL_TIMEOUT=10
+TRACEROUTE_HOPS=15
+TRACEROUTE_TIMEOUT=1
+PERF_TEST_COUNT=10
+PERF_TEST_INTERVAL=0.2
+EOF
+    )
+    
+    echo "$config_sample" > "$config_path"
+    log_info "示例配置文件已创建: $config_path"
+    echo -e "${GREEN}请根据需要修改，然后重命名为: network_test.conf${NC}"
+    echo ""
+    
+    # 显示文件内容
+    echo "配置文件内容预览:"
+    echo "========================"
+    cat "$config_path"
+    echo "========================"
+}
+
 # 解析命令行参数
 parse_args() {
     local help_text="用法: $0 [选项] [测试类型]
@@ -159,6 +220,7 @@ parse_args() {
   -p, --ping IP1,IP2,...     指定Ping测试目标(逗号分隔)
   -w, --http URL1,URL2,...   指定HTTP测试目标(逗号分隔)
   -i, --ip IP                 指定主测试IP地址
+  --create-config [FILE]     创建示例配置文件(默认: network_test.conf.example)
   --ping-count NUM           Ping包数量(默认: $PING_COUNT)
   --ping-timeout SEC         Ping超时时间(默认: $PING_TIMEOUT)
   --curl-timeout SEC         Curl超时时间(默认: $CURL_TIMEOUT)
@@ -179,7 +241,9 @@ parse_args() {
 示例:
   $0 -i 10.1.32.61 ping
   $0 -p 8.8.8.8,1.1.1.1,10.1.32.61 -w https://google.com,https://github.com full
-  $0 --config /etc/network_test.conf"
+  $0 --config /etc/network_test.conf
+  $0 --create-config
+  $0 --create-config my_config.conf"
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -214,6 +278,16 @@ parse_args() {
                 fi
                 log_info "命令行参数: 设置主测试IP为 $primary_ip"
                 shift 2
+                ;;
+            --create-config)
+                local config_file="$2"
+                if [[ -z "$config_file" ]] || [[ "$config_file" == -* ]]; then
+                    config_file="network_test.conf.example"
+                else
+                    shift
+                fi
+                create_sample_config "$config_file"
+                exit 0
                 ;;
             --ping-count)
                 PING_COUNT="$2"
@@ -271,61 +345,12 @@ show_config() {
     echo ""
 }
 
-# 创建示例配置文件
-create_sample_config() {
-    local config_sample=$(cat << 'EOF'
-# 网络测试脚本配置文件
-# 注释以#开头，每行一个配置
-
-# Ping测试目标(多个目标用空格分隔)
-PING_TARGETS=("10.1.32.61" "8.8.8.8" "1.1.1.1" "114.114.114.114")
-
-# HTTP/HTTPS测试目标
-HTTP_TARGETS=(
-    "http://www.baidu.com"
-    "http://www.google.com"
-    "https://www.google.com"
-    "https://github.com"
-    "https://www.qq.com"
-    "https://mirrors.aliyun.com"
-)
-
-# 详细HTTPS测试目标
-HTTPS_DETAILED_TARGETS=("https://www.google.com" "https://github.com")
-
-# DNS测试域名
-DNS_TARGETS=("www.baidu.com" "www.google.com" "github.com" "www.qq.com")
-
-# 端口测试目标(主机:端口列表)
-# 注意: 数组格式，键是主机，值是端口列表
-declare -A PORT_TARGETS=(
-    ["www.baidu.com"]="80 443"
-    ["github.com"]="443 22"
-    ["8.8.8.8"]="53"
-)
-
-# 测试参数
-PING_COUNT=4
-PING_TIMEOUT=2
-CURL_TIMEOUT=10
-TRACEROUTE_HOPS=15
-TRACEROUTE_TIMEOUT=1
-PERF_TEST_COUNT=10
-PERF_TEST_INTERVAL=0.2
-EOF
-    )
-    
-    echo "$config_sample" > "$CONFIG_FILE.example"
-    log_info "示例配置文件已创建: $CONFIG_FILE.example"
-    echo "请根据需要修改，然后重命名为: network_test.conf"
-}
-
 # 打印横幅
 print_banner() {
     clear
     echo -e "${BLUE}"
     echo "==============================================="
-    echo "    网络连通性测试脚本 v3.0 (参数化版)"
+    echo "    网络连通性测试脚本 v3.1 (参数化版)"
     echo "==============================================="
     echo -e "${NC}"
     echo "开始时间: $(date)"
@@ -718,7 +743,7 @@ run_tests() {
                         show_config
                         ;;
                     12)
-                        create_sample_config
+                        create_sample_config "network_test.conf.example"
                         ;;
                     13)
                         if [ -f "$LOG_FILE" ]; then
